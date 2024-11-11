@@ -34,21 +34,17 @@ def modificar_plantilla_word(candidato_data):
     # Buscar los marcadores y reemplazarlos con los datos del candidato
     for paragraph in doc.paragraphs:
         for key, value in candidato_data.items():
-            # Aquí, si encuentra un marcador en el texto, lo reemplaza con el valor correspondiente
             marcador = f"[{key}]"  # Marcador en formato [key]
             if marcador in paragraph.text:
-                # Reemplazar el marcador con el valor de la base de datos
                 paragraph.text = paragraph.text.replace(marcador, str(value))
     
     # Guardar el nuevo documento con los datos del candidato
     doc.save(OUTPUT_WORD_PATH)
     print("Plantilla de Word modificada y guardada correctamente.")
 
-
-# Función para convertir el documento Word a PDF usando reportlab
+# Función para convertir el documento Word a PDF usando LibreOffice
 def convertir_word_a_pdf():
     try:
-        # Usa LibreOffice para convertir el archivo Word a PDF
         subprocess.run(["libreoffice", "--headless", "--convert-to", "pdf", OUTPUT_WORD_PATH, "--outdir", "/app/output"])
         print("Documento convertido a PDF exitosamente.")
     except Exception as e:
@@ -68,6 +64,22 @@ def procesar_mensaje(ch, method, properties, body):
         modificar_plantilla_word(candidato_data)
         convertir_word_a_pdf()
         print("Contrato generado en PDF.")
+
+        # Actualizar el estado de impresión en la base de datos
+        try:
+            conn = mysql.connector.connect(
+                host='mysql-contratos',
+                user='juandejesus',
+                password='lomaxp1204',
+                database='contratos'
+            )
+            cursor = conn.cursor()
+            cursor.execute("UPDATE candidato SET status_impresion = 1 WHERE id = %s", (candidato_id,))
+            conn.commit()
+            conn.close()
+            print("Estado de impresión actualizado a 1.")
+        except mysql.connector.Error as e:
+            print("Error al actualizar el estado de impresión en la base de datos:", e)
     else:
         print("No se encontraron datos del candidato.")
     
@@ -89,20 +101,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-'''
-        # Actualizar el estado de impresión en la base de datos
-        conn = mysql.connector.connect(
-            host='mysql-contratos',
-            user='juandejesus',
-            password='lomaxp1204',
-            database='contratos'
-        )
-        cursor = conn.cursor()
-        cursor.execute("UPDATE candidato SET estado_impresion = 1 WHERE id = %s", (candidato_id,))
-        conn.commit()
-        conn.close()
-        print("Estado de impresión actualizado a 1.")
-    else:
-        print("Candidato no encontrado.")
-'''
