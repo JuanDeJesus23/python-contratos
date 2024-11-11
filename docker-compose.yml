@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  python_worker:
+    build:
+      context: ./
+    networks:
+      - contratos_default
+    ports:
+      - "8765:8765"
+    container_name: python_contratos
+    environment:
+      RABBITMQ_HOST: rabbit_contratos
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: juandejesus
+      RABBITMQ_PASSWORD: lomaxp1204
+      LARAVEL_API_URL: http://php-apache-contratos:8001
+    volumes:
+      - ./:/app
+
+networks:
+  contratos_default:
+    external:
+      name: contratos_default

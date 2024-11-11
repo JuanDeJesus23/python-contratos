@@ -1,0 +1,5 @@
+pika
+mysql-connector-python
+python-docx
+pdfkit
+reportlab
