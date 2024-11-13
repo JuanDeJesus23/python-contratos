@@ -6,11 +6,13 @@ import mysql.connector
 import json
 import pika
 import subprocess
+import requests
+import time
 
 # Ruta para guardar el archivo Word y el PDF
 INPUT_WORD_PATH = '/app/templates/contrato.docx'
 OUTPUT_WORD_PATH = '/app/output/contrato_generado.docx'
-OUTPUT_PDF_PATH = '/app/output/contrato.pdf'
+OUTPUT_PDF_PATH = '/app/output/contrato_generado.pdf'
 
 # Función para obtener los datos del candidato
 def obtener_datos_candidato(candidato_id):
@@ -50,21 +52,35 @@ def convertir_word_a_pdf():
     except Exception as e:
         print("Error al convertir el documento a PDF:", e)
 
-# Función que se ejecuta al recibir un mensaje de RabbitMQ
-def procesar_mensaje(ch, method, properties, body):
-    # Decodificar el cuerpo del mensaje desde bytes a un diccionario
-    mensaje = json.loads(body.decode('utf-8'))
-    
-    # Obtener el ID del usuario desde el diccionario
-    candidato_id = int(mensaje['id_usuario'])
-    print(f'Recibido ID de candidato: {candidato_id}')
+def enviar_pdf_a_laravel(candidato_id):
+    try:
+        with open(OUTPUT_PDF_PATH, 'rb') as pdf_file:
+            response = requests.post(
+                'http://php-apache-contratos/api/upload-pdf', 
+                files={'file': pdf_file},
+                data={'candidato_id': candidato_id},
+                timeout=30
+            )
+            if response.status_code == 200:
+                print("PDF enviado exitosamente a Laravel.")
 
-    candidato_data = obtener_datos_candidato(candidato_id)
-    if candidato_data:
-        modificar_plantilla_word(candidato_data)
-        convertir_word_a_pdf()
-        print("Contrato generado en PDF.")
+                # Eliminar el archivo PDF después de enviarlo
+                if os.path.exists(OUTPUT_PDF_PATH):
+                    os.remove(OUTPUT_PDF_PATH)
+                    print(f"El archivo PDF {OUTPUT_PDF_PATH} ha sido eliminado.")
 
+            else:
+                print(f"Error al enviar PDF a Laravel: {response.status_code}")
+    except Exception as e:
+        print(f"Ocurrió un error: {e}")
+    finally:
+        print("Proceso finalizado.")
+
+
+def verificar_descarga_pdf(candidato_id):
+    if not os.path.exists(OUTPUT_PDF_PATH):
+        print("El archivo PDF ya no existe en el sistema. Procediendo a actualizar el estado.")
+        # Código para actualizar el estado de impresión en la base de datos
         # Actualizar el estado de impresión en la base de datos
         try:
             conn = mysql.connector.connect(
@@ -80,10 +96,46 @@ def procesar_mensaje(ch, method, properties, body):
             print("Estado de impresión actualizado a 1.")
         except mysql.connector.Error as e:
             print("Error al actualizar el estado de impresión en la base de datos:", e)
+
+# Función que se ejecuta al recibir un mensaje de RabbitMQ
+def procesar_mensaje(ch, method, properties, body):
+    # Decodificar el cuerpo del mensaje desde bytes a un diccionario
+    mensaje = json.loads(body.decode('utf-8'))
+    
+    # Obtener el ID del usuario desde el diccionario
+    candidato_id = int(mensaje['id_usuario'])
+    print(f'Recibido ID de candidato: {candidato_id}')
+
+    candidato_data = obtener_datos_candidato(candidato_id)
+    if candidato_data:
+        modificar_plantilla_word(candidato_data)
+        convertir_word_a_pdf()
+         # Confirmar que Laravel ha recibido el archivo
+        enviar_pdf_a_laravel(candidato_id)
+        verificar_descarga_pdf(candidato_id)
+        
+        # Esperar hasta que el archivo desaparezca, y luego cambiar el estado
+        while os.path.exists(OUTPUT_PDF_PATH):
+            time.sleep(5)  # Espera un poco y vuelve a verificar
+
+        # Cambiar el estado de impresión en la base de datos
+        conn = mysql.connector.connect(
+            host='mysql-contratos',
+            user='juandejesus',
+            password='lomaxp1204',
+            database='contratos'
+        )
+        cursor = conn.cursor()
+        cursor.execute("UPDATE candidato SET status_impresion = 1 WHERE id = %s", (candidato_id,))
+        conn.commit()
+        conn.close()
+        print("Contrato generado en PDF.")
+
     else:
         print("No se encontraron datos del candidato.")
     
     ch.basic_ack(delivery_tag=method.delivery_tag)
+   
 
 # Configuración de RabbitMQ y espera de mensajes
 def main():
@@ -93,7 +145,7 @@ def main():
     ))
 
     channel = connection.channel()
-    channel.queue_declare(queue= 'imprimir_contrato_queue')
+    channel.queue_declare(queue= 'imprimir_contrato_queue',durable=True)
 
     channel.basic_consume(queue= 'imprimir_contrato_queue', on_message_callback=procesar_mensaje)
     print('Esperando mensajes...')
