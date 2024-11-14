@@ -118,19 +118,6 @@ def procesar_mensaje(ch, method, properties, body):
         while os.path.exists(OUTPUT_PDF_PATH):
             time.sleep(5)  # Espera un poco y vuelve a verificar
 
-        # Cambiar el estado de impresión en la base de datos
-        conn = mysql.connector.connect(
-            host='mysql-contratos',
-            user='juandejesus',
-            password='lomaxp1204',
-            database='contratos'
-        )
-        cursor = conn.cursor()
-        cursor.execute("UPDATE candidato SET status_impresion = 1 WHERE id = %s", (candidato_id,))
-        conn.commit()
-        conn.close()
-        print("Contrato generado en PDF.")
-
     else:
         print("No se encontraron datos del candidato.")
     
