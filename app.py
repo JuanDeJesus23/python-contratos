@@ -112,7 +112,7 @@ def procesar_mensaje(ch, method, properties, body):
         convertir_word_a_pdf()
          # Confirmar que Laravel ha recibido el archivo
         enviar_pdf_a_laravel(candidato_id)
-        #verificar_descarga_pdf(candidato_id)
+        verificar_descarga_pdf(candidato_id)
         
         # Esperar hasta que el archivo desaparezca, y luego cambiar el estado
         while os.path.exists(OUTPUT_PDF_PATH):
