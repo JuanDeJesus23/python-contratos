@@ -47,34 +47,40 @@ def modificar_plantilla_word(candidato_data):
 # Función para convertir el documento Word a PDF usando LibreOffice
 def convertir_word_a_pdf():
     try:
-        subprocess.run(["libreoffice", "--headless", "--convert-to", "pdf", OUTPUT_WORD_PATH, "--outdir", "/app/output"])
+        # Convertir a PDF usando LibreOffice
+        subprocess.run(["libreoffice", "--headless", "--convert-to", "pdf", OUTPUT_WORD_PATH, "--outdir", "/app/output"], check=True)
         print("Documento convertido a PDF exitosamente.")
-    except Exception as e:
-        print("Error al convertir el documento a PDF:", e)
+    except subprocess.CalledProcessError as e:
+        print(f"Error al convertir Word a PDF: {e}")
+        raise Exception("Error al generar el PDF.")
 
 def enviar_pdf_a_laravel(candidato_id):
     try:
+        # Verificar si el PDF está listo
+        if not os.path.exists(OUTPUT_PDF_PATH):
+            print(f"PDF no encontrado: {OUTPUT_PDF_PATH}")
+            raise Exception("El PDF no se generó correctamente.")
+        
+        # Subir el PDF a Laravel
         with open(OUTPUT_PDF_PATH, 'rb') as pdf_file:
             response = requests.post(
-                'http://php-apache-contratos/api/upload-pdf', 
+                'http://php-apache-contratos/api/upload-pdf',
                 files={'file': pdf_file},
                 data={'candidato_id': candidato_id},
-                timeout=30
+                timeout=5
             )
             if response.status_code == 200:
                 print("PDF enviado exitosamente a Laravel.")
-
-                # Eliminar el archivo PDF después de enviarlo
-                if os.path.exists(OUTPUT_PDF_PATH):
-                    os.remove(OUTPUT_PDF_PATH)
-                    print(f"El archivo PDF {OUTPUT_PDF_PATH} ha sido eliminado.")
-
+                # Eliminar el archivo PDF local
+                os.remove(OUTPUT_PDF_PATH)
             else:
                 print(f"Error al enviar PDF a Laravel: {response.status_code}")
+                raise Exception("Falló la comunicación con Laravel.")
     except Exception as e:
         print(f"Ocurrió un error: {e}")
-    finally:
-        print("Proceso finalizado.")
+        raise
+
+
 
 
 def verificar_descarga_pdf(candidato_id):
@@ -90,38 +96,51 @@ def verificar_descarga_pdf(candidato_id):
                 database='contratos'
             )
             cursor = conn.cursor()
-            cursor.execute("UPDATE candidato SET status_impresion = 1 WHERE id = %s", (candidato_id,))
+            cursor.execute("UPDATE candidato SET status_impresion = 0 WHERE id = %s", (candidato_id,))
             conn.commit()
             conn.close()
-            print("Estado de impresión actualizado a 1.")
+            print("Estado de impresión actualizado a 0.")
         except mysql.connector.Error as e:
             print("Error al actualizar el estado de impresión en la base de datos:", e)
 
 # Función que se ejecuta al recibir un mensaje de RabbitMQ
 def procesar_mensaje(ch, method, properties, body):
-    # Decodificar el cuerpo del mensaje desde bytes a un diccionario
-    mensaje = json.loads(body.decode('utf-8'))
-    
-    # Obtener el ID del usuario desde el diccionario
-    candidato_id = int(mensaje['id_usuario'])
-    print(f'Recibido ID de candidato: {candidato_id}')
+    try:
+        mensaje = json.loads(body.decode('utf-8'))
+        candidato_id = int(mensaje['id_usuario'])
 
-    candidato_data = obtener_datos_candidato(candidato_id)
-    if candidato_data:
+        # Obtener datos del candidato
+        candidato_data = obtener_datos_candidato(candidato_id)
+        if not candidato_data:
+            print(f"Candidato con ID {candidato_id} no encontrado.")
+            return
+
+        # Modificar Word y convertir a PDF
         modificar_plantilla_word(candidato_data)
         convertir_word_a_pdf()
-         # Confirmar que Laravel ha recibido el archivo
-        enviar_pdf_a_laravel(candidato_id)
-        verificar_descarga_pdf(candidato_id)
-        
-        # Esperar hasta que el archivo desaparezca, y luego cambiar el estado
-        while os.path.exists(OUTPUT_PDF_PATH):
-            time.sleep(5)  # Espera un poco y vuelve a verificar
 
-    else:
-        print("No se encontraron datos del candidato.")
-    
-    ch.basic_ack(delivery_tag=method.delivery_tag)
+        # Subir PDF a Laravel
+        enviar_pdf_a_laravel(candidato_id)
+
+        # Actualizar estado en la BD
+        conn = mysql.connector.connect(
+            host='mysql-contratos',
+            user='juandejesus',
+            password='lomaxp1204',
+            database='contratos'
+        )
+        cursor = conn.cursor()
+        cursor.execute("UPDATE candidato SET status_impresion = 0 WHERE id = %s", (candidato_id,))
+        conn.commit()
+        conn.close()
+
+        print(f"Contrato procesado correctamente para el candidato {candidato_id}.")
+    except Exception as e:
+        print(f"Error al procesar mensaje: {e}")
+    finally:
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+
+
    
 
 # Configuración de RabbitMQ y espera de mensajes
