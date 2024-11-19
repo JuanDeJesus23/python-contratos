@@ -96,10 +96,10 @@ def verificar_descarga_pdf(candidato_id):
                 database='contratos'
             )
             cursor = conn.cursor()
-            cursor.execute("UPDATE candidato SET status_impresion = 0 WHERE id = %s", (candidato_id,))
+            cursor.execute("UPDATE candidato SET status_impresion = 1 WHERE id = %s", (candidato_id,))
             conn.commit()
             conn.close()
-            print("Estado de impresión actualizado a 0.")
+            print("Estado de impresión actualizado a 1.")
         except mysql.connector.Error as e:
             print("Error al actualizar el estado de impresión en la base de datos:", e)
 
@@ -121,18 +121,9 @@ def procesar_mensaje(ch, method, properties, body):
 
         # Subir PDF a Laravel
         enviar_pdf_a_laravel(candidato_id)
+        verificar_descarga_pdf(candidato_id)
 
-        # Actualizar estado en la BD
-        conn = mysql.connector.connect(
-            host='mysql-contratos',
-            user='juandejesus',
-            password='lomaxp1204',
-            database='contratos'
-        )
-        cursor = conn.cursor()
-        cursor.execute("UPDATE candidato SET status_impresion = 0 WHERE id = %s", (candidato_id,))
-        conn.commit()
-        conn.close()
+        
 
         print(f"Contrato procesado correctamente para el candidato {candidato_id}.")
     except Exception as e:
